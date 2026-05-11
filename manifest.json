@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "WF Tracker Profile Sync",
-  "description": "Syncs your Warframe public profile data to approved WF Tracker consumers.",
+  "name": "Warframe Profile Extension",
+  "description": "Syncs your Warframe public profile data to approved consumers.",
   "version": "0.1.0",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "WF Tracker Profile Sync"
+    "default_title": "Warframe Profile Extension"
   },
   "background": {
     "service_worker": "src/background.js",

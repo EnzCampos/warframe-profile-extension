@@ -83,7 +83,7 @@ async function handleGetIdentity(senderOrigin) {
   const state = await getState();
 
   if (!isOriginAllowed(senderOrigin, state.allowedOrigins)) {
-    return createError("origin_not_allowed", "This website is not allowed to read WF Tracker profile data.");
+    return createError("origin_not_allowed", "This website is not allowed to read Warframe profile data.");
   }
 
   if (!state.accountId) {
@@ -92,7 +92,7 @@ async function handleGetIdentity(senderOrigin) {
 
   if (!state.platformKey) {
     await chrome.action.setBadgeText({ text: "!" });
-    return createError("platform_required", "Choose your Warframe platform in the WF Tracker extension.");
+    return createError("platform_required", "Choose your Warframe platform in Warframe Profile Extension.");
   }
 
   return {
@@ -106,7 +106,7 @@ async function handleSyncProfile(message, senderOrigin) {
   const state = await getState();
 
   if (!isOriginAllowed(senderOrigin, state.allowedOrigins)) {
-    return createError("origin_not_allowed", "This website is not allowed to request WF Tracker profile sync.");
+    return createError("origin_not_allowed", "This website is not allowed to request Warframe profile sync.");
   }
 
   const accountId =
@@ -121,7 +121,7 @@ async function handleSyncProfile(message, senderOrigin) {
 
   if (!platformKey) {
     await chrome.action.setBadgeText({ text: "!" });
-    return createError("platform_required", "Choose your Warframe platform in the WF Tracker extension.");
+    return createError("platform_required", "Choose your Warframe platform in Warframe Profile Extension.");
   }
 
   let profileUrl;
@@ -173,7 +173,7 @@ async function handleExternalMessage(message, sender) {
   const senderOrigin = normalizeOrigin(sender?.origin ?? sender?.url ?? "");
 
   if (!isSupportedMessageType(message?.type)) {
-    return createError("unsupported_message", "Unsupported WF Tracker extension message.");
+    return createError("unsupported_message", "Unsupported Warframe Profile Extension message.");
   }
 
   if (message.type === "wftracker.status") {
