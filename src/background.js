@@ -14,6 +14,9 @@ import {
 
 const WARFRAME_COOKIE_URL = "https://www.warframe.com/";
 const GID_COOKIE_NAME = "gid";
+const APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
+
+const pendingApprovals = new Map();
 
 async function storageGet(keys) {
   return chrome.storage.sync.get(keys);
@@ -27,11 +30,19 @@ async function ensureDefaultAllowlist() {
   const stored = await storageGet(STORAGE_KEYS.allowedOrigins);
   const allowedOrigins = normalizeAllowedOrigins(stored[STORAGE_KEYS.allowedOrigins]);
 
-  if (allowedOrigins.length === 0) {
+  if (!arraysEqual(stored[STORAGE_KEYS.allowedOrigins], allowedOrigins)) {
     await storageSet({
-      [STORAGE_KEYS.allowedOrigins]: DEFAULT_ALLOWED_ORIGINS,
+      [STORAGE_KEYS.allowedOrigins]: allowedOrigins,
     });
   }
+}
+
+function arraysEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
 }
 
 async function getGidCookie() {
@@ -80,11 +91,11 @@ async function handleStatus(senderOrigin) {
 }
 
 async function handleGetIdentity(senderOrigin) {
-  const state = await getState();
-
-  if (!isOriginAllowed(senderOrigin, state.allowedOrigins)) {
+  if (!(await ensureOriginApproved(senderOrigin))) {
     return createError("origin_not_allowed", "This website is not allowed to read Warframe profile data.");
   }
+
+  const state = await getState();
 
   if (!state.accountId) {
     return createError("gid_missing", "Log in to warframe.com so the extension can find your gid Account ID.");
@@ -103,11 +114,11 @@ async function handleGetIdentity(senderOrigin) {
 }
 
 async function handleSyncProfile(message, senderOrigin) {
-  const state = await getState();
-
-  if (!isOriginAllowed(senderOrigin, state.allowedOrigins)) {
+  if (!(await ensureOriginApproved(senderOrigin))) {
     return createError("origin_not_allowed", "This website is not allowed to request Warframe profile sync.");
   }
+
+  const state = await getState();
 
   const accountId =
     typeof message?.accountId === "string" && message.accountId.trim()
@@ -169,6 +180,87 @@ async function handleSyncProfile(message, senderOrigin) {
   }
 }
 
+async function ensureOriginApproved(senderOrigin) {
+  const normalizedOrigin = normalizeOrigin(senderOrigin);
+  if (!normalizedOrigin) {
+    return false;
+  }
+
+  await ensureDefaultAllowlist();
+  const stored = await storageGet(STORAGE_KEYS.allowedOrigins);
+  const allowedOrigins = normalizeAllowedOrigins(stored[STORAGE_KEYS.allowedOrigins] ?? DEFAULT_ALLOWED_ORIGINS);
+
+  if (isOriginAllowed(normalizedOrigin, allowedOrigins)) {
+    return true;
+  }
+
+  return requestOriginApproval(normalizedOrigin);
+}
+
+async function requestOriginApproval(origin) {
+  if (pendingApprovals.has(origin)) {
+    return pendingApprovals.get(origin).promise;
+  }
+
+  const popupUrl = chrome.runtime.getURL(`approval.html?origin=${encodeURIComponent(origin)}`);
+  const pending = {};
+  pending.promise = new Promise((resolve) => {
+    pending.resolve = resolve;
+  });
+  pending.timeoutId = setTimeout(() => finishApproval(origin, false), APPROVAL_TIMEOUT_MS);
+  pendingApprovals.set(origin, pending);
+
+  try {
+    const windowInfo = await chrome.windows.create({
+      focused: true,
+      height: 330,
+      type: "popup",
+      url: popupUrl,
+      width: 420,
+    });
+    pending.windowId = windowInfo.id;
+  } catch {
+    finishApproval(origin, false);
+  }
+
+  return pending.promise;
+}
+
+async function approveOrigin(origin) {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin || !pendingApprovals.has(normalizedOrigin)) {
+    return false;
+  }
+
+  const stored = await storageGet(STORAGE_KEYS.allowedOrigins);
+  const allowedOrigins = normalizeAllowedOrigins(stored[STORAGE_KEYS.allowedOrigins] ?? DEFAULT_ALLOWED_ORIGINS);
+  const nextAllowedOrigins = normalizeAllowedOrigins([...allowedOrigins, normalizedOrigin]);
+  await storageSet({ [STORAGE_KEYS.allowedOrigins]: nextAllowedOrigins });
+  finishApproval(normalizedOrigin, true);
+  return true;
+}
+
+function refuseOrigin(origin) {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin || !pendingApprovals.has(normalizedOrigin)) {
+    return false;
+  }
+
+  finishApproval(normalizedOrigin, false);
+  return true;
+}
+
+function finishApproval(origin, approved) {
+  const pending = pendingApprovals.get(origin);
+  if (!pending) {
+    return;
+  }
+
+  pendingApprovals.delete(origin);
+  clearTimeout(pending.timeoutId);
+  pending.resolve(approved);
+}
+
 async function handleExternalMessage(message, sender) {
   const senderOrigin = normalizeOrigin(sender?.origin ?? sender?.url ?? "");
 
@@ -176,11 +268,11 @@ async function handleExternalMessage(message, sender) {
     return createError("unsupported_message", "Unsupported Warframe Profile Extension message.");
   }
 
-  if (message.type === "wftracker.status") {
+  if (message.type === "warframeProfile.status") {
     return handleStatus(senderOrigin);
   }
 
-  if (message.type === "wftracker.getIdentity") {
+  if (message.type === "warframeProfile.getIdentity") {
     return handleGetIdentity(senderOrigin);
   }
 
@@ -192,17 +284,40 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "wftracker.captureGid") {
-    return false;
+  if (message?.type === "warframeProfile.captureGid") {
+    void captureGidFromCookie()
+      .then((accountId) => sendResponse({ accountIdPresent: Boolean(accountId), ok: true }))
+      .catch(() => sendResponse(createError("gid_missing", "The gid cookie is not available yet.")));
+    return true;
   }
 
-  void captureGidFromCookie()
-    .then((accountId) => sendResponse({ accountIdPresent: Boolean(accountId), ok: true }))
-    .catch(() => sendResponse(createError("gid_missing", "The gid cookie is not available yet.")));
-  return true;
+  if (message?.type === "warframeProfile.approvalDecision") {
+    const decide = message.approved ? approveOrigin : refuseOrigin;
+    void Promise.resolve(decide(message.origin))
+      .then((ok) => sendResponse({ ok }))
+      .catch(() => sendResponse(createError("approval_failed", "The approval request could not be completed.")));
+    return true;
+  }
+
+  if (message?.type === "warframeProfile.forwardExternal") {
+    const senderOrigin = normalizeOrigin(message.origin);
+    void handleExternalMessage(message.payload, { origin: senderOrigin }).then(sendResponse);
+    return true;
+  }
+
+  return false;
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   void handleExternalMessage(message, sender).then(sendResponse);
   return true;
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  for (const [origin, pending] of pendingApprovals.entries()) {
+    if (pending.windowId === windowId) {
+      finishApproval(origin, false);
+      return;
+    }
+  }
 });

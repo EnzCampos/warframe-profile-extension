@@ -9,7 +9,7 @@
   <body class="options">
     <main>
       <h1>Warframe Profile Extension</h1>
-      <p class="lede">Manage the Warframe platform and the trusted web origins that may request profile data.</p>
+      <p class="lede">Manage the Warframe platform and the trusted sites that may request profile data.</p>
 
       <label>
         Platform
@@ -23,10 +23,14 @@
         <input id="accountId" readonly placeholder="Log in to warframe.com" />
       </label>
 
-      <label>
-        Allowed origins
-        <textarea id="allowlist" rows="8" spellcheck="false"></textarea>
-      </label>
+      <section class="trusted-sites" aria-labelledby="trustedSitesTitle">
+        <h2 id="trustedSitesTitle">Trusted sites</h2>
+        <div id="trustedSites" class="trusted-site-list"></div>
+        <div class="add-site">
+          <input id="siteInput" placeholder="wf-tracker.com" spellcheck="false" />
+          <button id="addSite" type="button">Add</button>
+        </div>
+      </section>
 
       <div id="status" role="status"></div>
 

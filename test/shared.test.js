@@ -6,6 +6,7 @@ import {
   mapProfileFetchError,
   normalizeAllowedOrigins,
   normalizePlatformKey,
+  normalizeTrustedSiteInput,
 } from "../src/shared.js";
 
 describe("extension core helpers", () => {
@@ -16,17 +17,29 @@ describe("extension core helpers", () => {
         "https://example.com/other",
         "bad-url",
         "http://localhost:3000/mastery",
+        "*",
       ]),
     ).toEqual(["http://localhost:3000", "https://example.com"]);
   });
 
   test("checks external consumer origins against the allowlist", () => {
     expect(
-      isOriginAllowed("https://wftracker.vercel.app/mastery", DEFAULT_ALLOWED_ORIGINS),
-    ).toBe(true);
-    expect(
       isOriginAllowed("https://not-approved.example", DEFAULT_ALLOWED_ORIGINS),
     ).toBe(false);
+    expect(
+      isOriginAllowed("not-a-url", DEFAULT_ALLOWED_ORIGINS),
+    ).toBe(false);
+    expect(isOriginAllowed("https://not-approved.example", ["https://wf-tracker.com"])).toBe(false);
+    expect(isOriginAllowed("https://wf-tracker.com", ["https://wf-tracker.com"])).toBe(true);
+  });
+
+  test("normalizes trusted site input", () => {
+    expect(normalizeTrustedSiteInput("wf-tracker.com")).toBe("https://wf-tracker.com");
+    expect(normalizeTrustedSiteInput("https://wf-tracker.com/path")).toBe("https://wf-tracker.com");
+    expect(normalizeTrustedSiteInput("localhost:3000")).toBe("http://localhost:3000");
+    expect(normalizeTrustedSiteInput("http://localhost:3000/profile")).toBe("http://localhost:3000");
+    expect(normalizeTrustedSiteInput("*")).toBeNull();
+    expect(normalizeTrustedSiteInput("not a valid site")).toBeNull();
   });
 
   test("builds profile URLs for supported platforms", () => {

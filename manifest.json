@@ -1,9 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Warframe Profile Extension",
-  "description": "Syncs your Warframe public profile data to approved consumers.",
+  "description": "Open source Warframe profile sync extension made for Warframe Tracker.",
   "version": "0.1.0",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
     "default_popup": "popup.html",
     "default_title": "Warframe Profile Extension"
   },
@@ -13,17 +25,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.warframe.com/*"],
+      "matches": ["<all_urls>"],
       "js": ["src/content-script.js"],
       "run_at": "document_idle"
     }
   ],
   "externally_connectable": {
+    "ids": ["*"],
     "matches": [
-      "https://wftracker.vercel.app/*",
-      "https://*/*",
-      "http://localhost/*",
-      "http://127.0.0.1/*"
+      "https://wf-tracker.com/*"
     ]
   },
   "host_permissions": [

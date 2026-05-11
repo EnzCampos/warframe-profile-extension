@@ -4,14 +4,19 @@ import {
   STORAGE_KEYS,
   normalizeAllowedOrigins,
   normalizePlatformKey,
+  normalizeTrustedSiteInput,
 } from "./shared.js";
 
 const platformSelect = document.querySelector("#platform");
 const accountIdInput = document.querySelector("#accountId");
-const allowlistInput = document.querySelector("#allowlist");
+const trustedSitesEl = document.querySelector("#trustedSites");
+const siteInput = document.querySelector("#siteInput");
+const addSiteButton = document.querySelector("#addSite");
 const statusEl = document.querySelector("#status");
 const saveButton = document.querySelector("#save");
 const refreshButton = document.querySelector("#refreshGid");
+
+let trustedOrigins = [];
 
 function setStatus(message, kind = "info") {
   statusEl.textContent = message;
@@ -40,7 +45,8 @@ async function loadState() {
 
   platformSelect.value = platformKey;
   accountIdInput.value = stored[STORAGE_KEYS.accountId] ?? "";
-  allowlistInput.value = allowedOrigins.join("\n");
+  trustedOrigins = allowedOrigins;
+  renderTrustedSites();
 
   if (!platformKey) {
     setStatus("Choose your Warframe platform before syncing.", "warning");
@@ -53,23 +59,77 @@ async function loadState() {
 
 async function saveState() {
   const platformKey = normalizePlatformKey(platformSelect.value);
-  const allowedOrigins = normalizeAllowedOrigins(allowlistInput.value.split(/\r?\n/));
+  const values = {
+    [STORAGE_KEYS.allowedOrigins]: trustedOrigins,
+  };
 
-  if (!platformKey) {
-    setStatus("Choose a supported platform.", "error");
+  if (platformKey) {
+    values[STORAGE_KEYS.platformKey] = platformKey;
+  }
+
+  await chrome.storage.sync.set(values);
+  await chrome.action.setBadgeText({ text: "" });
+  setStatus(platformKey ? "Saved." : "Trusted sites saved. Choose a platform before syncing.", "success");
+}
+
+function renderTrustedSites() {
+  trustedSitesEl.textContent = "";
+
+  if (trustedOrigins.length === 0) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "empty-state";
+    emptyState.textContent = "No trusted sites yet.";
+    trustedSitesEl.append(emptyState);
     return;
   }
 
-  await chrome.storage.sync.set({
-    [STORAGE_KEYS.allowedOrigins]: allowedOrigins,
-    [STORAGE_KEYS.platformKey]: platformKey,
-  });
-  await chrome.action.setBadgeText({ text: "" });
-  setStatus("Saved.", "success");
+  for (const origin of trustedOrigins) {
+    const item = document.createElement("div");
+    item.className = "trusted-site";
+
+    const originText = document.createElement("span");
+    originText.textContent = origin;
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "remove-site";
+    removeButton.textContent = "Remove";
+    removeButton.setAttribute("aria-label", `Remove ${origin}`);
+    removeButton.addEventListener("click", () => removeTrustedSite(origin));
+
+    item.append(originText, removeButton);
+    trustedSitesEl.append(item);
+  }
+}
+
+function addTrustedSite() {
+  const origin = normalizeTrustedSiteInput(siteInput.value);
+
+  if (!origin) {
+    setStatus("Enter a valid site or URL.", "error");
+    return;
+  }
+
+  if (trustedOrigins.includes(origin)) {
+    setStatus("That site is already trusted.", "warning");
+    siteInput.value = "";
+    return;
+  }
+
+  trustedOrigins = normalizeAllowedOrigins([...trustedOrigins, origin]);
+  siteInput.value = "";
+  renderTrustedSites();
+  setStatus("Trusted site added. Save to apply changes.", "info");
+}
+
+function removeTrustedSite(origin) {
+  trustedOrigins = trustedOrigins.filter((trustedOrigin) => trustedOrigin !== origin);
+  renderTrustedSites();
+  setStatus("Trusted site removed. Save to apply changes.", "info");
 }
 
 async function refreshGid() {
-  const response = await chrome.runtime.sendMessage({ type: "wftracker.captureGid" });
+  const response = await chrome.runtime.sendMessage({ type: "warframeProfile.captureGid" });
   if (!response?.ok || !response.accountIdPresent) {
     setStatus("No gid found. Log in to warframe.com first.", "warning");
     return;
@@ -81,5 +141,12 @@ async function refreshGid() {
 
 renderPlatformOptions();
 void loadState();
+addSiteButton.addEventListener("click", addTrustedSite);
+siteInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addTrustedSite();
+  }
+});
 saveButton.addEventListener("click", () => void saveState());
 refreshButton.addEventListener("click", () => void refreshGid());

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Approve Warframe Profile Access</title>
+    <link rel="stylesheet" href="src/options.css" />
+  </head>
+  <body class="approval">
+    <main>
+      <h1>Approve profile access?</h1>
+      <p class="lede">This site wants to request your Warframe profile data through the extension.</p>
+      <div id="origin" class="approval-origin"></div>
+      <div id="status" role="status"></div>
+      <div class="actions">
+        <button id="refuse" type="button">Refuse</button>
+        <button id="approve" type="button">Approve</button>
+      </div>
+    </main>
+    <script type="module" src="src/approval-ui.js"></script>
+  </body>
+</html>

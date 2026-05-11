@@ -1,18 +1,12 @@
 export const EXTENSION_VERSION = "0.1.0";
 
 export const STORAGE_KEYS = {
-  accountId: "wftracker.accountId",
-  allowedOrigins: "wftracker.allowedOrigins",
-  platformKey: "wftracker.platformKey",
+  accountId: "warframeProfile.accountId",
+  allowedOrigins: "warframeProfile.allowedOrigins",
+  platformKey: "warframeProfile.platformKey",
 };
 
-export const DEFAULT_ALLOWED_ORIGINS = [
-  "https://wftracker.vercel.app",
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001",
-];
+export const DEFAULT_ALLOWED_ORIGINS = [];
 
 export const PLATFORM_OPTIONS = [
   { key: "pc", label: "PC", endpoint: "https://api.warframe.com/cdn/getProfileViewingData.php" },
@@ -35,6 +29,20 @@ export function normalizeOrigin(value) {
   } catch {
     return null;
   }
+}
+
+export function normalizeTrustedSiteInput(value) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed || trimmed === "*") {
+    return null;
+  }
+
+  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)) {
+    return normalizeOrigin(trimmed);
+  }
+
+  const protocol = /^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(trimmed) ? "http" : "https";
+  return normalizeOrigin(`${protocol}://${trimmed}`);
 }
 
 export function normalizeAllowedOrigins(values) {
@@ -93,9 +101,9 @@ export function createError(code, message) {
 
 export function isSupportedMessageType(type) {
   return (
-    type === "wftracker.status" ||
-    type === "wftracker.getIdentity" ||
-    type === "wftracker.syncProfile"
+    type === "warframeProfile.status" ||
+    type === "warframeProfile.getIdentity" ||
+    type === "warframeProfile.syncProfile"
   );
 }
 

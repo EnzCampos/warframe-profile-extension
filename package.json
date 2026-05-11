@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "ci": "npm test && npm run build",
+    "compile": "npm run build",
+    "package": "npm run build",
     "test": "vitest run"
   },
   "devDependencies": {
