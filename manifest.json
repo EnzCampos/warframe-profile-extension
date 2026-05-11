@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "WF Tracker Profile Sync",
+  "description": "Syncs your Warframe public profile data to approved WF Tracker consumers.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WF Tracker Profile Sync"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.warframe.com/*"],
+      "js": ["src/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://wftracker.vercel.app/*",
+      "https://*/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  },
+  "host_permissions": [
+    "https://www.warframe.com/*",
+    "https://api.warframe.com/*",
+    "http://content-ps4.warframe.com/*",
+    "http://content-xb1.warframe.com/*",
+    "http://content-swi.warframe.com/*",
+    "http://content-mob.warframe.com/*",
+    "http://content-and.warframe.com/*"
+  ],
+  "permissions": ["cookies", "storage"],
+  "options_page": "options.html"
+}

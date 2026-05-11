@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WF Tracker Profile Sync</title>
+    <link rel="stylesheet" href="src/options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>WF Tracker</h1>
+      <p class="lede">Choose your platform and approve the sites that can request profile sync.</p>
+
+      <label>
+        Platform
+        <select id="platform">
+          <option value="">Choose platform</option>
+        </select>
+      </label>
+
+      <label>
+        Captured gid
+        <input id="accountId" readonly placeholder="Log in to warframe.com" />
+      </label>
+
+      <label>
+        Allowed origins
+        <textarea id="allowlist" rows="6" spellcheck="false"></textarea>
+      </label>
+
+      <div id="status" role="status"></div>
+
+      <div class="actions">
+        <button id="refreshGid" type="button">Refresh gid</button>
+        <button id="save" type="button">Save</button>
+      </div>
+    </main>
+    <script type="module" src="src/options-ui.js"></script>
+  </body>
+</html>
