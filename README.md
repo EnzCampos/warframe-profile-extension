@@ -76,6 +76,13 @@ Approved origins may use these message types:
 - `warframeProfile.getIdentity`
 - `warframeProfile.syncProfile`
 
+`warframeProfile.syncProfile` returns the raw Warframe profile payload as `jsonText`. Successful responses also include cache metadata:
+
+- `cached`: `true` when the profile came from extension storage instead of a new Warframe request.
+- `stale`: `true` when the saved profile was returned after a failed refresh attempt.
+- `fetchedAt`, `expiresAt`, and `nextRefreshAt`: ISO timestamps derived from the Warframe response cache headers.
+- `refreshError`: present only on stale fallback responses, with the refresh failure code and message.
+
 The trusted-site list starts empty. When a new site requests identity or profile sync data, the extension asks the user to approve or refuse that origin. Approved origins are saved and can be removed in the popup or options page.
 
 Webpages can use the bridge with `window.postMessage`:

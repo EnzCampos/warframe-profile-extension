@@ -7,7 +7,7 @@ let crcTable;
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
 const distDir = join(rootDir, "dist");
-const runtimeEntries = ["manifest.json", "popup.html", "options.html", "approval.html", "icons", "src"];
+const runtimeEntries = ["manifest.json", "popup.html", "options.html", "icons", "src"];
 
 const packageJson = JSON.parse(await readFile(join(rootDir, "package.json"), "utf8"));
 const zipName = `${packageJson.name}-${packageJson.version}.zip`;

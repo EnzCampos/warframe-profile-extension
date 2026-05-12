@@ -2,9 +2,13 @@ import {
   DEFAULT_ALLOWED_ORIGINS,
   EXTENSION_VERSION,
   STORAGE_KEYS,
+  buildProfileCacheKey,
   buildProfileUrl,
+  createProfileCacheEntry,
   createError,
   isOriginAllowed,
+  isProfileCacheEntryFor,
+  isProfileCacheEntryFresh,
   isSupportedMessageType,
   mapProfileFetchError,
   normalizeAllowedOrigins,
@@ -14,9 +18,7 @@ import {
 
 const WARFRAME_COOKIE_URL = "https://www.warframe.com/";
 const GID_COOKIE_NAME = "gid";
-const APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
-
-const pendingApprovals = new Map();
+const PROFILE_403_STALE_TTL_MS = 60 * 60 * 1000;
 
 async function storageGet(keys) {
   return chrome.storage.sync.get(keys);
@@ -24,6 +26,14 @@ async function storageGet(keys) {
 
 async function storageSet(values) {
   return chrome.storage.sync.set(values);
+}
+
+async function localStorageGet(keys) {
+  return chrome.storage.local.get(keys);
+}
+
+async function localStorageSet(values) {
+  return chrome.storage.local.set(values);
 }
 
 async function ensureDefaultAllowlist() {
@@ -91,11 +101,11 @@ async function handleStatus(senderOrigin) {
 }
 
 async function handleGetIdentity(senderOrigin) {
-  if (!(await ensureOriginApproved(senderOrigin))) {
+  const state = await getState();
+
+  if (!isOriginAllowed(senderOrigin, state.allowedOrigins)) {
     return createError("origin_not_allowed", "This website is not allowed to read Warframe profile data.");
   }
-
-  const state = await getState();
 
   if (!state.accountId) {
     return createError("gid_missing", "Log in to warframe.com so the extension can find your gid Account ID.");
@@ -113,12 +123,12 @@ async function handleGetIdentity(senderOrigin) {
   };
 }
 
-async function handleSyncProfile(message, senderOrigin) {
-  if (!(await ensureOriginApproved(senderOrigin))) {
+async function handleSyncProfile(message, senderOrigin, { skipOriginCheck = false } = {}) {
+  const state = await getState();
+
+  if (!skipOriginCheck && !isOriginAllowed(senderOrigin, state.allowedOrigins)) {
     return createError("origin_not_allowed", "This website is not allowed to request Warframe profile sync.");
   }
-
-  const state = await getState();
 
   const accountId =
     typeof message?.accountId === "string" && message.accountId.trim()
@@ -142,93 +152,207 @@ async function handleSyncProfile(message, senderOrigin) {
     return createError("unsupported_platform", "The selected Warframe platform is not supported.");
   }
 
+  const cachedEntry = await getProfileCacheEntry(accountId, platformKey);
+  if (isProfileCacheEntryFresh(cachedEntry)) {
+    await persistProfileSelection(accountId, platformKey);
+    await chrome.action.setBadgeText({ text: "" });
+    return createProfileResponse(cachedEntry, { cached: true, stale: false });
+  }
+
+  if (isProfileCacheRefreshDeferred(cachedEntry)) {
+    await persistProfileSelection(accountId, platformKey);
+    await chrome.action.setBadgeText({ text: "" });
+    return createProfileResponse(cachedEntry, {
+      cached: true,
+      refreshError: cachedEntry.refreshError,
+      stale: true,
+    });
+  }
+
   try {
     const response = await fetch(profileUrl, { cache: "no-store" });
     const jsonText = await response.text();
 
     if (!response.ok) {
-      return createError(
+      const errorResponse = createError(
         mapProfileFetchError(response.status),
         `Warframe profile request failed with status ${response.status}.`,
+      );
+
+      if (response.status === 403 && cachedEntry) {
+        const deferredEntry = await deferProfileCacheRefresh(cachedEntry, errorResponse.error);
+        return createProfileResponse(deferredEntry, {
+          cached: true,
+          refreshError: errorResponse.error,
+          stale: true,
+        });
+      }
+
+      return createProfileRefreshFailure(
+        cachedEntry,
+        errorResponse,
       );
     }
 
     try {
       const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed?.Results) || parsed.Results.length === 0) {
-        return createError("invalid_profile_json", "Warframe returned JSON, but it was not a profile payload.");
+        return createProfileRefreshFailure(
+          cachedEntry,
+          createError("invalid_profile_json", "Warframe returned JSON, but it was not a profile payload."),
+        );
       }
     } catch {
-      return createError("invalid_profile_json", "Warframe returned a profile response that was not valid JSON.");
+      return createProfileRefreshFailure(
+        cachedEntry,
+        createError("invalid_profile_json", "Warframe returned a profile response that was not valid JSON."),
+      );
     }
 
+    const fetchedAt = new Date().toISOString();
+    const cacheEntry = createProfileCacheEntry({
+      accountId,
+      cacheControl: response.headers.get("Cache-Control") ?? "",
+      fetchedAt,
+      jsonText,
+      platformKey,
+    });
+
+    if (cacheEntry) {
+      await saveProfileCacheEntry(cacheEntry);
+    }
+
+    await persistProfileSelection(accountId, platformKey);
+    await chrome.action.setBadgeText({ text: "" });
+
+    return createProfileResponse(
+      cacheEntry ?? {
+        accountId,
+        expiresAt: fetchedAt,
+        fetchedAt,
+        jsonText,
+        nextRefreshAt: fetchedAt,
+        platformKey,
+      },
+      { cached: false, stale: false },
+    );
+  } catch {
+    return createProfileRefreshFailure(
+      cachedEntry,
+      createError("network_error", "The extension could not reach the Warframe profile endpoint."),
+    );
+  }
+}
+
+async function persistProfileSelection(accountId, platformKey) {
+  try {
     await storageSet({
       [STORAGE_KEYS.accountId]: accountId,
       [STORAGE_KEYS.platformKey]: platformKey,
     });
-    await chrome.action.setBadgeText({ text: "" });
-
-    return {
-      accountId,
-      fetchedAt: new Date().toISOString(),
-      jsonText,
-      ok: true,
-      platformKey,
-    };
   } catch {
-    return createError("network_error", "The extension could not reach the Warframe profile endpoint.");
+    // Profile delivery should not fail only because preference persistence failed.
   }
 }
 
-async function ensureOriginApproved(senderOrigin) {
-  const normalizedOrigin = normalizeOrigin(senderOrigin);
-  if (!normalizedOrigin) {
+async function getProfileCacheEntry(accountId, platformKey) {
+  const cacheKey = buildProfileCacheKey(accountId, platformKey);
+  if (!cacheKey) {
+    return null;
+  }
+
+  try {
+    const stored = await localStorageGet(STORAGE_KEYS.profileCache);
+    const cache = normalizeProfileCache(stored[STORAGE_KEYS.profileCache]);
+    const entry = cache[cacheKey];
+
+    return isProfileCacheEntryFor(entry, accountId, platformKey) ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveProfileCacheEntry(entry) {
+  const cacheKey = buildProfileCacheKey(entry.accountId, entry.platformKey);
+  if (!cacheKey) {
+    return;
+  }
+
+  try {
+    const stored = await localStorageGet(STORAGE_KEYS.profileCache);
+    const cache = normalizeProfileCache(stored[STORAGE_KEYS.profileCache]);
+    await localStorageSet({
+      [STORAGE_KEYS.profileCache]: {
+        ...cache,
+        [cacheKey]: entry,
+      },
+    });
+  } catch {
+    // A cache write failure should not block delivery of a freshly fetched profile.
+  }
+}
+
+function normalizeProfileCache(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function isProfileCacheRefreshDeferred(entry, now = new Date()) {
+  if (!entry?.refreshError || entry.refreshError.code !== "profile_403") {
     return false;
   }
 
-  await ensureDefaultAllowlist();
-  const stored = await storageGet(STORAGE_KEYS.allowedOrigins);
-  const allowedOrigins = normalizeAllowedOrigins(stored[STORAGE_KEYS.allowedOrigins] ?? DEFAULT_ALLOWED_ORIGINS);
+  const nextRefreshAtMs = Date.parse(entry.nextRefreshAt);
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
 
-  if (isOriginAllowed(normalizedOrigin, allowedOrigins)) {
-    return true;
-  }
-
-  return requestOriginApproval(normalizedOrigin);
+  return (
+    !isProfileCacheEntryFresh(entry, now) &&
+    Number.isFinite(nextRefreshAtMs) &&
+    Number.isFinite(nowMs) &&
+    nextRefreshAtMs > nowMs
+  );
 }
 
-async function requestOriginApproval(origin) {
-  if (pendingApprovals.has(origin)) {
-    return pendingApprovals.get(origin).promise;
-  }
+async function deferProfileCacheRefresh(cachedEntry, refreshError) {
+  const deferredEntry = {
+    ...cachedEntry,
+    nextRefreshAt: new Date(Date.now() + PROFILE_403_STALE_TTL_MS).toISOString(),
+    refreshError,
+  };
 
-  const popupUrl = chrome.runtime.getURL(`approval.html?origin=${encodeURIComponent(origin)}`);
-  const pending = {};
-  pending.promise = new Promise((resolve) => {
-    pending.resolve = resolve;
-  });
-  pending.timeoutId = setTimeout(() => finishApproval(origin, false), APPROVAL_TIMEOUT_MS);
-  pendingApprovals.set(origin, pending);
+  await saveProfileCacheEntry(deferredEntry);
+  return deferredEntry;
+}
 
-  try {
-    const windowInfo = await chrome.windows.create({
-      focused: true,
-      height: 330,
-      type: "popup",
-      url: popupUrl,
-      width: 420,
+function createProfileResponse(entry, { cached, stale, refreshError } = {}) {
+  return {
+    accountId: entry.accountId,
+    cached,
+    expiresAt: entry.expiresAt,
+    fetchedAt: entry.fetchedAt,
+    jsonText: entry.jsonText,
+    nextRefreshAt: entry.nextRefreshAt,
+    ok: true,
+    platformKey: entry.platformKey,
+    stale,
+    ...(refreshError ? { refreshError } : {}),
+  };
+}
+
+function createProfileRefreshFailure(cachedEntry, errorResponse) {
+  if (cachedEntry) {
+    return createProfileResponse(cachedEntry, {
+      cached: true,
+      refreshError: errorResponse.error,
+      stale: true,
     });
-    pending.windowId = windowInfo.id;
-  } catch {
-    finishApproval(origin, false);
   }
 
-  return pending.promise;
+  return errorResponse;
 }
 
 async function approveOrigin(origin) {
   const normalizedOrigin = normalizeOrigin(origin);
-  if (!normalizedOrigin || !pendingApprovals.has(normalizedOrigin)) {
+  if (!normalizedOrigin) {
     return false;
   }
 
@@ -236,32 +360,10 @@ async function approveOrigin(origin) {
   const allowedOrigins = normalizeAllowedOrigins(stored[STORAGE_KEYS.allowedOrigins] ?? DEFAULT_ALLOWED_ORIGINS);
   const nextAllowedOrigins = normalizeAllowedOrigins([...allowedOrigins, normalizedOrigin]);
   await storageSet({ [STORAGE_KEYS.allowedOrigins]: nextAllowedOrigins });
-  finishApproval(normalizedOrigin, true);
   return true;
 }
 
-function refuseOrigin(origin) {
-  const normalizedOrigin = normalizeOrigin(origin);
-  if (!normalizedOrigin || !pendingApprovals.has(normalizedOrigin)) {
-    return false;
-  }
-
-  finishApproval(normalizedOrigin, false);
-  return true;
-}
-
-function finishApproval(origin, approved) {
-  const pending = pendingApprovals.get(origin);
-  if (!pending) {
-    return;
-  }
-
-  pendingApprovals.delete(origin);
-  clearTimeout(pending.timeoutId);
-  pending.resolve(approved);
-}
-
-async function handleExternalMessage(message, sender) {
+export async function handleExternalMessage(message, sender) {
   const senderOrigin = normalizeOrigin(sender?.origin ?? sender?.url ?? "");
 
   if (!isSupportedMessageType(message?.type)) {
@@ -279,6 +381,10 @@ async function handleExternalMessage(message, sender) {
   return handleSyncProfile(message, senderOrigin);
 }
 
+export async function handleLocalProfileSync(message) {
+  return handleSyncProfile(message, "", { skipOriginCheck: true });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   void ensureDefaultAllowlist();
 });
@@ -291,11 +397,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "warframeProfile.approvalDecision") {
-    const decide = message.approved ? approveOrigin : refuseOrigin;
-    void Promise.resolve(decide(message.origin))
+  if (message?.type === "warframeProfile.trustOrigin") {
+    const senderOrigin = normalizeOrigin(_sender?.origin ?? _sender?.url ?? message.origin ?? "");
+    void approveOrigin(senderOrigin)
       .then((ok) => sendResponse({ ok }))
       .catch(() => sendResponse(createError("approval_failed", "The approval request could not be completed.")));
+    return true;
+  }
+
+  if (message?.type === "warframeProfile.syncProfileInternal") {
+    void handleLocalProfileSync(message).then(sendResponse);
     return true;
   }
 
@@ -311,13 +422,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   void handleExternalMessage(message, sender).then(sendResponse);
   return true;
-});
-
-chrome.windows.onRemoved.addListener((windowId) => {
-  for (const [origin, pending] of pendingApprovals.entries()) {
-    if (pending.windowId === windowId) {
-      finishApproval(origin, false);
-      return;
-    }
-  }
 });

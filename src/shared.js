@@ -4,9 +4,11 @@ export const STORAGE_KEYS = {
   accountId: "warframeProfile.accountId",
   allowedOrigins: "warframeProfile.allowedOrigins",
   platformKey: "warframeProfile.platformKey",
+  profileCache: "warframeProfile.profileCache",
 };
 
 export const DEFAULT_ALLOWED_ORIGINS = [];
+export const DEFAULT_PROFILE_CACHE_TTL_SECONDS = 15 * 60;
 
 export const PLATFORM_OPTIONS = [
   { key: "pc", label: "PC", endpoint: "https://api.warframe.com/cdn/getProfileViewingData.php" },
@@ -111,4 +113,128 @@ export function mapProfileFetchError(status) {
   if (status === 403) return "profile_403";
   if (status === 404) return "profile_404";
   return "network_error";
+}
+
+export function buildProfileCacheKey(accountId, platformKey) {
+  const trimmedAccountId = typeof accountId === "string" ? accountId.trim() : "";
+  const normalizedPlatformKey = normalizePlatformKey(platformKey);
+
+  if (!trimmedAccountId || !normalizedPlatformKey) {
+    return null;
+  }
+
+  return `${normalizedPlatformKey}:${encodeURIComponent(trimmedAccountId)}`;
+}
+
+export function parseProfileCacheMaxAge(cacheControl) {
+  if (typeof cacheControl !== "string") {
+    return DEFAULT_PROFILE_CACHE_TTL_SECONDS;
+  }
+
+  const maxAgeDirective = cacheControl
+    .split(",")
+    .map((directive) => directive.trim())
+    .find((directive) => /^max-age\s*=/i.test(directive));
+  const maxAgeValue = maxAgeDirective?.split("=")[1]?.trim();
+  const maxAgeSeconds = Number(maxAgeValue);
+
+  return Number.isFinite(maxAgeSeconds) && maxAgeSeconds > 0
+    ? Math.max(Math.floor(maxAgeSeconds), DEFAULT_PROFILE_CACHE_TTL_SECONDS)
+    : DEFAULT_PROFILE_CACHE_TTL_SECONDS;
+}
+
+export function createProfileCacheEntry({ accountId, cacheControl, fetchedAt, jsonText, platformKey }) {
+  const normalizedPlatformKey = normalizePlatformKey(platformKey);
+  const trimmedAccountId = typeof accountId === "string" ? accountId.trim() : "";
+  const fetchedAtMs = Date.parse(fetchedAt);
+
+  if (!trimmedAccountId || !normalizedPlatformKey || typeof jsonText !== "string" || Number.isNaN(fetchedAtMs)) {
+    return null;
+  }
+
+  const ttlSeconds = parseProfileCacheMaxAge(cacheControl);
+  const expiresAt = new Date(fetchedAtMs + ttlSeconds * 1000).toISOString();
+
+  return {
+    accountId: trimmedAccountId,
+    cacheControl: typeof cacheControl === "string" ? cacheControl : "",
+    expiresAt,
+    fetchedAt: new Date(fetchedAtMs).toISOString(),
+    jsonText,
+    nextRefreshAt: expiresAt,
+    platformKey: normalizedPlatformKey,
+  };
+}
+
+export function isProfileCacheEntryFresh(entry, now = new Date()) {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+
+  const expiresAtMs = Date.parse(entry.expiresAt);
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+
+  return Number.isFinite(expiresAtMs) && Number.isFinite(nowMs) && expiresAtMs > nowMs;
+}
+
+export function isProfileCacheEntryFor(entry, accountId, platformKey) {
+  return (
+    entry?.accountId === (typeof accountId === "string" ? accountId.trim() : "") &&
+    entry?.platformKey === normalizePlatformKey(platformKey) &&
+    typeof entry?.jsonText === "string" &&
+    Boolean(entry.fetchedAt) &&
+    Boolean(entry.expiresAt) &&
+    Boolean(entry.nextRefreshAt)
+  );
+}
+
+export function extractProfileSummary(jsonText) {
+  if (typeof jsonText !== "string" || !jsonText.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    const profile = Array.isArray(parsed?.Results) ? parsed.Results[0] : null;
+    if (!profile || typeof profile !== "object") {
+      return null;
+    }
+
+    const displayName = firstStringValue(profile, ["DisplayName", "PlayerName", "playerName", "name"]);
+    const masteryRank = firstFiniteNumberValue(profile, ["MasteryRank", "masteryRank", "MasteryLevel", "PlayerLevel"]);
+
+    if (!displayName && masteryRank === null) {
+      return null;
+    }
+
+    return {
+      displayName,
+      masteryRank,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function firstStringValue(source, keys) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function firstFiniteNumberValue(source, keys) {
+  for (const key of keys) {
+    const value = source[key];
+    const numberValue = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(numberValue)) {
+      return Math.floor(numberValue);
+    }
+  }
+
+  return null;
 }

@@ -23,6 +23,21 @@
         <input id="accountId" readonly placeholder="Log in to warframe.com" />
       </label>
 
+      <section class="profile-summary" aria-labelledby="profileSummaryTitle">
+        <h2 id="profileSummaryTitle">Connected profile</h2>
+        <div class="profile-summary-grid">
+          <div>
+            <span>Display name</span>
+            <strong id="displayName">Not synced</strong>
+          </div>
+          <div>
+            <span>Mastery Rank</span>
+            <strong id="masteryRank">--</strong>
+          </div>
+        </div>
+        <p id="profileMeta" class="profile-meta"></p>
+      </section>
+
       <section class="trusted-sites" aria-labelledby="trustedSitesTitle">
         <h2 id="trustedSitesTitle">Trusted sites</h2>
         <div id="trustedSites" class="trusted-site-list"></div>
@@ -36,6 +51,7 @@
 
       <div class="actions">
         <button id="refreshGid" type="button">Refresh gid</button>
+        <button id="loadProfile" type="button">Load data</button>
         <button id="save" type="button">Save</button>
       </div>
     </main>

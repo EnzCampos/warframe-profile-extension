@@ -24,7 +24,7 @@ Thanks for helping improve Warframe Profile Extension.
 - The options page can save a platform and trusted sites.
 - The `gid` refresh flow works after logging in to `warframe.com`.
 - Webpages can request status through the page bridge.
-- New profile-data requests from untrusted sites open the approval popup.
+- New profile-data requests from untrusted sites show the approval modal.
 - Refused or untrusted origins receive an `origin_not_allowed` response.
 
 ## Pull requests
