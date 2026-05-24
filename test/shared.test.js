@@ -8,6 +8,7 @@ import {
   extractProfileSummary,
   isOriginAllowed,
   isProfileCacheEntryFresh,
+  isSupportedMessageType,
   mapProfileFetchError,
   normalizeAllowedOrigins,
   normalizePlatformKey,
@@ -63,6 +64,12 @@ describe("extension core helpers", () => {
     expect(mapProfileFetchError(403)).toBe("profile_403");
     expect(mapProfileFetchError(404)).toBe("profile_404");
     expect(mapProfileFetchError(500)).toBe("network_error");
+  });
+
+  test("supports explicit origin approval messages", () => {
+    expect(isSupportedMessageType("warframeProfile.requestOriginApproval")).toBe(true);
+    expect(isSupportedMessageType("warframeProfile.status")).toBe(true);
+    expect(isSupportedMessageType("warframeProfile.unknown")).toBe(false);
   });
 
   test("parses profile cache max-age from Cache-Control", () => {

@@ -378,6 +378,13 @@ export async function handleExternalMessage(message, sender) {
     return handleGetIdentity(senderOrigin);
   }
 
+  if (message.type === "warframeProfile.requestOriginApproval") {
+    return createError(
+      "origin_not_allowed",
+      "Open this site in a tab where the Warframe Profile Extension can run, then approve the site from the page prompt.",
+    );
+  }
+
   return handleSyncProfile(message, senderOrigin);
 }
 

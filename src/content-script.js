@@ -1,5 +1,6 @@
 const PAGE_REQUEST_SOURCE = "warframe-profile-extension-page";
 const EXTENSION_RESPONSE_SOURCE = "warframe-profile-extension";
+const ORIGIN_APPROVAL_TYPE = "warframeProfile.requestOriginApproval";
 
 let approvalModalPromise = null;
 
@@ -36,6 +37,11 @@ function isPageRequest(data) {
 
 async function handlePageRequest(requestId, message) {
   try {
+    if (message?.type === ORIGIN_APPROVAL_TYPE) {
+      await handleOriginApprovalRequest(requestId);
+      return;
+    }
+
     if (requiresProfileApproval(message?.type)) {
       const approved = await ensurePageOriginTrusted();
       if (!approved) {
@@ -53,6 +59,27 @@ async function handlePageRequest(requestId, message) {
   } catch {
     postResponse(requestId, createError("extension_unavailable", "Warframe Profile Extension is not available."));
   }
+}
+
+async function handleOriginApprovalRequest(requestId) {
+  const approved = await ensurePageOriginTrusted();
+  if (!approved) {
+    postResponse(
+      requestId,
+      createError(
+        "origin_not_allowed",
+        "This website is not allowed to request Warframe profile data.",
+      ),
+    );
+    return;
+  }
+
+  const status = await chrome.runtime.sendMessage({
+    origin: window.location.origin,
+    payload: { type: "warframeProfile.status" },
+    type: "warframeProfile.forwardExternal",
+  });
+  postResponse(requestId, status);
 }
 
 function requiresProfileApproval(type) {

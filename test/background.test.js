@@ -206,6 +206,27 @@ describe("background profile persistence", () => {
       stale: false,
     });
   });
+
+  test("direct external approval requests explain that page access is required", async () => {
+    const { handleExternalMessage } = await importBackground({
+      fetchMock: vi.fn(),
+      localStore: {},
+    });
+
+    const response = await handleExternalMessage(
+      { type: "warframeProfile.requestOriginApproval" },
+      { origin: "https://not-approved.example" },
+    );
+
+    expect(response).toEqual({
+      error: {
+        code: "origin_not_allowed",
+        message:
+          "Open this site in a tab where the Warframe Profile Extension can run, then approve the site from the page prompt.",
+      },
+      ok: false,
+    });
+  });
 });
 
 async function importBackground({ fetchMock, localStore }) {

@@ -105,7 +105,8 @@ export function isSupportedMessageType(type) {
   return (
     type === "warframeProfile.status" ||
     type === "warframeProfile.getIdentity" ||
-    type === "warframeProfile.syncProfile"
+    type === "warframeProfile.syncProfile" ||
+    type === "warframeProfile.requestOriginApproval"
   );
 }
 
