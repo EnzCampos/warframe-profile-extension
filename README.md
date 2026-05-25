@@ -31,7 +31,7 @@ Compile the extension into a clean distributable folder and zip archive:
 npm run build
 ```
 
-The build output is written to `dist/`, including `dist/warframe-profile-extension-0.1.0.zip`.
+The build output is written to `dist/`, including a versioned extension zip.
 
 For CI parity, run:
 
