@@ -35,14 +35,35 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-  publish-placeholder:
-    name: Chrome Web Store publish placeholder
+  publish-chrome-web-store:
+    name: Publish to Chrome Web Store
     needs: test-and-build
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment: chrome-web-store
+    permissions:
+      contents: read
 
     steps:
-      - name: Placeholder
-        run: |
-          echo "Chrome Web Store publishing is intentionally not configured yet."
-          echo "Later, replace this step with the Chrome Web Store upload/publish command and required secrets."
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download extension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension
+          path: dist
+
+      - name: Publish extension
+        env:
+          CHROME_WEB_STORE_CLIENT_ID: ${{ secrets.CHROME_WEB_STORE_CLIENT_ID }}
+          CHROME_WEB_STORE_CLIENT_SECRET: ${{ secrets.CHROME_WEB_STORE_CLIENT_SECRET }}
+          CHROME_WEB_STORE_EXTENSION_ID: ${{ secrets.CHROME_WEB_STORE_EXTENSION_ID }}
+          CHROME_WEB_STORE_PUBLISHER_ID: ${{ secrets.CHROME_WEB_STORE_PUBLISHER_ID }}
+          CHROME_WEB_STORE_REFRESH_TOKEN: ${{ secrets.CHROME_WEB_STORE_REFRESH_TOKEN }}
+        run: node scripts/publish-chrome-web-store.mjs dist/*.zip

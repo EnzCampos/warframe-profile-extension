@@ -61,6 +61,10 @@ async function validateManifest() {
     throw new Error("manifest.json must use Manifest V3.");
   }
 
+  if (manifest.version !== packageJson.version) {
+    throw new Error("manifest.json version must match package.json version.");
+  }
+
   for (const file of requiredFiles) {
     try {
       await stat(join(distDir, file));

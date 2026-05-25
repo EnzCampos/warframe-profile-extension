@@ -66,7 +66,17 @@ npm test
 
 GitHub Actions runs tests and builds the extension zip on pushes to `main`, pull requests, and manual workflow runs.
 
-Manual workflow runs also execute a Chrome Web Store publishing placeholder job. The project can be published to the Chrome Web Store later by replacing that placeholder with the Chrome Web Store upload/publish step and configuring the required store credentials as repository secrets.
+Pushes to `main` and manual workflow runs also upload the built zip to the Chrome Web Store and submit it for review. Pull requests only test and build.
+
+Configure these repository or `chrome-web-store` environment secrets before publishing:
+
+- `CHROME_WEB_STORE_CLIENT_ID`
+- `CHROME_WEB_STORE_CLIENT_SECRET`
+- `CHROME_WEB_STORE_REFRESH_TOKEN`
+- `CHROME_WEB_STORE_PUBLISHER_ID`
+- `CHROME_WEB_STORE_EXTENSION_ID`
+
+The Chrome Web Store item must already be created and published at least once from the Developer Dashboard with the intended visibility settings. The manifest version must be incremented before each store upload.
 
 ## External message types
 

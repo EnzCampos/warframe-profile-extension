@@ -8,6 +8,7 @@
     "ci": "npm test && npm run build",
     "compile": "npm run build",
     "package": "npm run build",
+    "publish:chrome": "node scripts/publish-chrome-web-store.mjs",
     "test": "vitest run"
   },
   "devDependencies": {
